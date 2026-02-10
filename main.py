@@ -150,7 +150,7 @@ def get_ai_response(phone: str, user_message: str) -> str:
         response = ai_client.chat.completions.create(
             model=MODEL,
             messages=messages,
-            max_tokens=250,
+            max_tokens=500,
             temperature=0.7,
         )
         ai_reply = response.choices[0].message.content.strip()
@@ -240,7 +240,7 @@ def _handle_summary(phone: str, user: dict) -> str:
                 {"role": "system", "content": assessment_prompt},
                 {"role": "user", "content": "How did I eat today?"},
             ],
-            max_tokens=150,
+            max_tokens=400,
             temperature=0.7,
         )
         assessment = _clean_response(response.choices[0].message.content.strip())
@@ -261,13 +261,13 @@ def _clean_response(text: str) -> str:
     text = re.sub(r'^#{1,3}\s+', '', text, flags=re.MULTILINE)
     # Remove excessive emojis (more than 3 in a row)
     text = re.sub(r'([\U0001F300-\U0001F9FF]){4,}', lambda m: m.group(0)[:3], text)
-    # Trim to reasonable length for WhatsApp
-    if len(text) > 500:
+    # Trim to reasonable length for WhatsApp (longer now for detailed coaching)
+    if len(text) > 1200:
         sentences = text.split('. ')
         trimmed = []
         length = 0
         for s in sentences:
-            if length + len(s) > 450:
+            if length + len(s) > 1100:
                 break
             trimmed.append(s)
             length += len(s)
