@@ -193,6 +193,37 @@ class Database:
         finally:
             conn.close()
 
+    def get_older_messages(self, phone: str, skip_recent: int = 50,
+                           limit: int = 200) -> list[dict]:
+        """Get older messages beyond the recent window, for building long-term summary."""
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """SELECT role, content, created_at FROM messages
+                   WHERE phone = ? ORDER BY id DESC LIMIT ? OFFSET ?""",
+                (phone, limit, skip_recent),
+            ).fetchall()
+            return [dict(r) for r in reversed(rows)]
+        finally:
+            conn.close()
+
+    def get_food_summary_by_date(self, phone: str, days: int = 30) -> list[dict]:
+        """Get daily food summaries for long-term pattern awareness."""
+        conn = self._get_conn()
+        start_date = (now_ist() - timedelta(days=days)).strftime("%Y-%m-%d")
+        try:
+            rows = conn.execute(
+                """SELECT meal_date, 
+                          GROUP_CONCAT(meal_type || ': ' || food_description, ' | ') as meals,
+                          COUNT(*) as meal_count
+                   FROM food_logs WHERE phone = ? AND meal_date >= ?
+                   GROUP BY meal_date ORDER BY meal_date DESC""",
+                (phone, start_date),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
     # ─── Food Logging ────────────────────────────────────────────
 
     def log_food(self, phone: str, food_description: str, meal_type: str = None,

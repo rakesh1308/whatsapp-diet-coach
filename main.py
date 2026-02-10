@@ -1,6 +1,6 @@
 """
 DietBuddy Pro — WhatsApp AI Diet Coach
-FastAPI + SQLite + HuggingFace Llama 3
+FastAPI + SQLite (persistent) + OpenAI GPT-4o-mini
 Full-featured: food logging, water tracking, onboarding, time-aware, weekly summaries
 """
 
@@ -37,8 +37,9 @@ VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "dietbuddy_verify_2024")
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 MODEL = os.getenv("MODEL", "gpt-4o-mini")
-MAX_CONTEXT_MESSAGES = 15
-DB_PATH = os.getenv("DB_PATH", "/tmp/dietbuddy.db")
+MAX_CONTEXT_MESSAGES = 50  # Recent detailed messages sent to LLM
+MAX_SUMMARY_MESSAGES = 200  # Older messages summarized for long-term memory
+DB_PATH = os.getenv("DB_PATH", "/data/dietbuddy.db")  # Persistent volume
 
 # ─── Logging ─────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
@@ -111,7 +112,13 @@ def get_ai_response(phone: str, user_message: str) -> str:
         logger.info(f"🍽️ Food logged for {phone}: {user_message}")
 
     # ── Build rich context for LLM ──
+    # Layer 1: Recent messages (full detail — last 50 messages)
     history = db.get_recent_messages(phone, limit=MAX_CONTEXT_MESSAGES)
+    
+    # Layer 2: Food history (last 30 days summary — patterns & habits)
+    food_history = db.get_food_summary_by_date(phone, days=30)
+    
+    # Layer 3: Today's specifics
     today_food = db.get_today_food_logs(phone)
     water_today = db.get_today_water(phone)
     water_goal = user.get("water_goal_liters", 3.0) if user else 3.0
@@ -120,28 +127,41 @@ def get_ai_response(phone: str, user_message: str) -> str:
         SYSTEM_PROMPT,
         get_time_context(),
         build_user_context(user),
-        build_today_food_context(today_food),
-        build_water_context(water_today, water_goal),
     ]
+    
+    # Add long-term food history as a compressed summary
+    if food_history and len(food_history) > 1:
+        food_history_text = "\n[FOOD HISTORY — LAST 30 DAYS]\n"
+        food_history_text += "Use this to understand their eating PATTERNS and habits. Reference past meals when relevant.\n"
+        for day in food_history[:14]:  # Last 14 days of summaries
+            food_history_text += f"{day['meal_date']} ({day['meal_count']} meals): {day['meals']}\n"
+        context_parts.append(food_history_text)
+    
+    # Add today's food log
+    context_parts.append(build_today_food_context(today_food))
+    context_parts.append(build_water_context(water_today, water_goal))
 
     # Add food log instruction if food detected
     if is_food:
         context_parts.append(
             "\n[INSTRUCTION: User just logged food. This has been saved. "
-            "Acknowledge the meal positively, assess it briefly, and give ONE helpful suggestion. "
-            "Keep it short and warm.]"
+            "Acknowledge positively, do a detailed nutritional assessment, "
+            "explain what's good and what's missing, give a specific actionable suggestion. "
+            "Reference their past eating patterns if relevant — e.g. 'I notice you've been having parathas most mornings this week...']"
         )
 
     # Add meal suggestion context
     if detect_meal_suggestion_request(user_message):
         context_parts.append(
             "\n[INSTRUCTION: User wants a meal suggestion. Consider the time of day, "
-            "their diet preference, regional cuisine, and what they've already eaten today. "
-            "Suggest ONE specific, practical Indian meal.]"
+            "their diet preference, regional cuisine, what they've already eaten today, "
+            "and their eating patterns from history. Give a detailed suggestion with "
+            "reasoning for WHY this meal works for them specifically.]"
         )
 
     system_message = "\n".join(context_parts)
 
+    # Build message array: system + full conversation history
     messages = [{"role": "system", "content": system_message}]
     for msg in history:
         messages.append({"role": msg["role"], "content": msg["content"]})
