@@ -150,7 +150,7 @@ def get_ai_response(phone: str, user_message: str) -> str:
         response = ai_client.chat.completions.create(
             model=MODEL,
             messages=messages,
-            max_tokens=500,
+            max_tokens=1024,
             temperature=0.7,
         )
         ai_reply = response.choices[0].message.content.strip()
@@ -240,7 +240,7 @@ def _handle_summary(phone: str, user: dict) -> str:
                 {"role": "system", "content": assessment_prompt},
                 {"role": "user", "content": "How did I eat today?"},
             ],
-            max_tokens=400,
+            max_tokens=800,
             temperature=0.7,
         )
         assessment = _clean_response(response.choices[0].message.content.strip())
@@ -261,19 +261,18 @@ def _clean_response(text: str) -> str:
     text = re.sub(r'^#{1,3}\s+', '', text, flags=re.MULTILINE)
     # Remove excessive emojis (more than 3 in a row)
     text = re.sub(r'([\U0001F300-\U0001F9FF]){4,}', lambda m: m.group(0)[:3], text)
-    # Trim to reasonable length for WhatsApp (longer now for detailed coaching)
-    if len(text) > 1200:
-        sentences = text.split('. ')
-        trimmed = []
-        length = 0
-        for s in sentences:
-            if length + len(s) > 1100:
-                break
-            trimmed.append(s)
-            length += len(s)
-        text = '. '.join(trimmed)
-        if not text.endswith(('.', '!', '?', '😊', '😄', '👍', '💪')):
-            text += '.'
+    # WhatsApp max message is 4096 chars — trim only if exceeding that
+    if len(text) > 4000:
+        # Find last complete paragraph before limit
+        cut = text[:4000].rfind('\n\n')
+        if cut > 2000:
+            text = text[:cut]
+        else:
+            cut = text[:4000].rfind('. ')
+            if cut > 0:
+                text = text[:cut + 1]
+            else:
+                text = text[:4000]
     return text.strip()
 
 
