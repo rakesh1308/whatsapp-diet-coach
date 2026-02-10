@@ -1,5 +1,5 @@
 fastapi
 uvicorn[standard]
-huggingface-hub
+openai
 python-dotenv
 httpx

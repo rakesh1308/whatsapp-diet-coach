@@ -13,7 +13,7 @@ import httpx
 from fastapi import FastAPI, Request, Query, HTTPException
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
-from huggingface_hub import InferenceClient
+from openai import OpenAI
 
 from database import Database, now_ist
 from coach import (
@@ -32,11 +32,11 @@ from coach import (
 load_dotenv()
 
 # ─── Configuration ───────────────────────────────────────────────
-HF_API_KEY = os.getenv("HF_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "dietbuddy_verify_2024")
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
-HF_MODEL = os.getenv("HF_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
+MODEL = os.getenv("MODEL", "gpt-4o-mini")
 MAX_CONTEXT_MESSAGES = 15
 DB_PATH = os.getenv("DB_PATH", "/tmp/dietbuddy.db")
 
@@ -46,15 +46,15 @@ logger = logging.getLogger("dietbuddy")
 
 # ─── Globals ─────────────────────────────────────────────────────
 db: Database = None
-hf_client: InferenceClient = None
+ai_client: OpenAI = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db, hf_client
+    global db, ai_client
     db = Database(DB_PATH)
-    hf_client = InferenceClient(api_key=HF_API_KEY)
-    logger.info(f"🟢 DietBuddy Pro started | Model: {HF_MODEL}")
+    ai_client = OpenAI(api_key=OPENAI_API_KEY)
+    logger.info(f"🟢 DietBuddy Pro started | Model: {MODEL}")
     yield
     logger.info("🔴 DietBuddy Pro shutting down")
 
@@ -147,8 +147,8 @@ def get_ai_response(phone: str, user_message: str) -> str:
         messages.append({"role": msg["role"], "content": msg["content"]})
 
     try:
-        response = hf_client.chat.completions.create(
-            model=HF_MODEL,
+        response = ai_client.chat.completions.create(
+            model=MODEL,
             messages=messages,
             max_tokens=250,
             temperature=0.7,
@@ -234,8 +234,8 @@ def _handle_summary(phone: str, user: dict) -> str:
     )
 
     try:
-        response = hf_client.chat.completions.create(
-            model=HF_MODEL,
+        response = ai_client.chat.completions.create(
+            model=MODEL,
             messages=[
                 {"role": "system", "content": assessment_prompt},
                 {"role": "user", "content": "How did I eat today?"},
@@ -470,7 +470,7 @@ async def receive_message(request: Request):
 
 @app.get("/")
 async def health():
-    return {"status": "🟢 DietBuddy Pro is alive!", "version": "Pro 1.0", "model": HF_MODEL}
+    return {"status": "🟢 DietBuddy Pro is alive!", "version": "Pro 1.0", "model": MODEL}
 
 
 @app.get("/admin/stats")
